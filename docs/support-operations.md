@@ -6,15 +6,15 @@ will take most of that person's day. This document works out:
 - what support at Swap actually involves, based on the platform code in
   `aaron-official/swap` as of 2026-09-30;
 - how one support agent, built on the sales agent
-  (`aaron-official/swap-sales-agent`), should handle it on every channel:
-  chat inside the Swap apps, WhatsApp, SMS, email and the website contact
-  form.
+  (`aaron-official/swap-sales-agent`), should handle it on Swap's two contact
+  points, WhatsApp and email.
 
 The goal:
 
-- **One agent, every channel, one inbox.** A person can start on WhatsApp,
-  continue in the app and get the result by SMS, and it is still one
-  conversation and one case.
+- **Two channels, one inbox.** WhatsApp and email feed one inbox. The apps
+  and the website send people to those two with their context attached. A
+  seller can start on WhatsApp and get the result by email, and it is still
+  one case.
 - The agent answers most questions by itself, from facts it can check.
 - For everything else, it collects the facts and hands the owner a short brief
   with a recommended action.
@@ -59,40 +59,48 @@ How people reach Swap today:
   and a 280-character message, and sends a Pushover notification to the
   owner's phone (`apps/buyer/app/api/contact/route.ts`).
 
-There is no chat in the apps, no WhatsApp support number and no way to
-receive SMS.
+There is no WhatsApp support number yet, and nothing passes the person's
+account or deal to support.
 
 ## 2. Channels
 
-### 2.1 One agent, many channels
+### 2.1 WhatsApp and email, one inbox
+
+WhatsApp and email are Swap's two contact points. SMS stays one-way: sign-up
+codes, password resets and notices. Nobody is expected to reply to an SMS,
+and every SMS notice should say how to reach support on WhatsApp or by email.
+
+The apps and the website don't carry their own support chat. Each "Get help"
+button opens WhatsApp or an email, already filled in with a reference that
+tells the agent who is asking and about which deal (section 2.4).
 
 ```
-  in-app chat (seller app, rider app, buyer deal page) ─┐
-  WhatsApp (Cloud API)                                  ─┤
-  SMS (two-way shortcode)                               ─┼─▶ channel gateway ─▶ support inbox ─▶ agent ─▶ reply
-  email (support@swapafrica.online)                     ─┤    (normalise,        (one person,    (brain)   on the same
-  website contact form                                  ─┘     verify sender)     one case)                channel
-                                                                                  │
-                                                           owner: admin console inbox + P1 alerts
+  WhatsApp (Cloud API, official Swap Support number) ─┐
+  email (support@swapafrica.online)                  ─┼─▶ channel gateway ─▶ support inbox ─▶ agent ─▶ reply
+  website contact form                               ─┘    (normalise,        (one person,    (brain)   on the same
+        ▲                                                   verify sender,     one case)                channel
+        │                                                   read help refs)       │
+  "Get help" buttons in the seller app, rider app and                             │
+  buyer deal page open WhatsApp or email with a reference       owner: admin console inbox + P1 alerts
 ```
 
-**Receiving.** Every channel is turned into the same inbound message:
+**Receiving.** Every message is turned into the same inbound message:
 
 - who sent it (channel and address);
-- how much we trust that address (section 5);
+- how much we trust that address (section 2.3);
+- the help reference, if there is one;
 - the text, plus any attachments;
 - the channel's own message ID, so it's stored only once.
 
 **The agent never knows channel details.** It reads new conversations from the
 inbox and writes one answer.
 
-**Replying.** A renderer shapes that answer for the channel it goes out on
-(section 2.5). Replies go out on the channel the person used last.
-Follow-ups (a refund was sent, a case is closed) go to their preferred
-channel.
+**Replying.** A renderer shapes that answer for WhatsApp or email (section
+2.5). Replies go out on the channel the person used last. Follow-ups (a
+refund was sent, a case is closed) go to whichever of the two they prefer.
 
-**The owner uses one inbox, not five apps.** The Support page in the admin
-console shows every conversation from every channel. From there the owner can
+**The owner uses one inbox, not two apps.** The Support page in the admin
+console shows every conversation from both channels. From there the owner can
 take over any conversation, and their reply goes out on the customer's
 channel. P1 alerts also reach the owner's phone.
 
@@ -100,102 +108,121 @@ channel. P1 alerts also reach the owner's phone.
 
 | Channel | How messages arrive | Strengths | Limits | What it needs |
 |---|---|---|---|---|
-| **In-app chat** | A "Help" chat in the seller app, the rider app, and on the buyer's deal or contract page | The person is already signed in, or holds the deal's link, so identity and deal context are there from the first message. Free. No outside platform's rules. Rich replies with buttons ("Open deal", "Reset password"). | Only reaches people who have the app or the link open | To be built in Swap (G11): tables, endpoints, screens, push |
-| **WhatsApp** | Meta's Cloud API webhook on an official Swap Support number | Where Ugandans already are. Voice notes and pictures. A verified business profile helps against impersonators. | Meta's 24-hour window: follow-ups after 24 hours need approved templates. Paid past the free tier (section 2.6). | Meta business verification, a webhook, templates |
-| **SMS** | Replies to a shortcode, forwarded by an SMS gateway to a Swap webhook | Works on any phone, including the basic phones many buyers pay with. No data needed. | 160 characters a segment, plain text, cost per message, no media. Text sits in a phone inbox that others may see. ThinkX, the current provider, can only send (G12). | A two-way provider and shortcode (section 2.6) |
-| **Email** | The `support@swapafrica.online` mailbox (Zoho), polled every minute | Longer questions, attachments (PDFs, screenshots), a written record | Spoofable, so the sender must pass SPF/DKIM/DMARC before we trust it. Carries the most spam, auto-replies and prompt injection. | The mailbox itself (G13), IMAP or Zoho Mail API access, SPF fix (G14) |
-| **Website form** | `/api/contact` posts into the inbox instead of only to Pushover | Catches people who found Swap on the web | The contact detail is typed, not verified. 280 characters. | A small change to the route |
+| **WhatsApp** | Meta's Cloud API webhook on an official Swap Support number | Where Ugandans already are. Voice notes and pictures. A verified business profile helps against impersonators. Meta's AI policy (in force for all businesses since 15 January 2026) allows businesses' own AI support, while banning general-purpose chatbots. | Meta's 24-hour window: follow-ups after 24 hours need approved templates. Paid past the free tier (section 2.6). | Meta business verification, a webhook, templates |
+| **Email** | The `support@swapafrica.online` mailbox (Zoho), polled every minute | Longer questions, attachments (PDFs, screenshots), a written record. Free. No outside platform's rules. | Spoofable, so the sender must pass SPF/DKIM/DMARC before we trust it. Carries the most spam, auto-replies and prompt injection. | The mailbox itself (G13), IMAP or Zoho Mail API access, SPF fix (G14) |
+| **Website form** | `/api/contact` posts into the inbox instead of only to Pushover | Catches people who found Swap on the web | The contact detail is typed, not verified. 280 characters. The reply goes out by email or WhatsApp. | A small change to the route |
+| **SMS** | Not a support channel | | ThinkX can only send (G12) | Every SMS notice ends with the support WhatsApp number or email |
 | **Phone calls** | Not handled by the agent | | | The owner, for identity checks (section 5) |
 
-**In-app chat should be the home channel.** It is the only channel that knows
-who someone is and which deal they mean before they say a word. It's free,
-and no outside platform can shut it down.
+**Use the official WhatsApp Business Platform (Cloud API), not
+whatsapp-web.js.** The support number will be printed in the apps, so losing
+it to a ban costs far more than losing a sales number. The Cloud API is also
+the setup Meta's AI policy explicitly allows.
 
-The other channels are doors into the same inbox. When something needs a
-stronger identity, the agent sends a link that continues the same case inside
-the app (section 5).
+**Chat inside the apps is optional and later.** The help references in
+section 2.4 give WhatsApp and email the same knowledge of who someone is and
+which deal they mean, without building a chat system. If support volume ever
+justifies it, in-app chat can join the same inbox as a third channel. The
+backend design in section 6 leaves room for it.
 
 ### 2.3 Trust per channel
 
 | Where the message came from | Who the agent may take them to be | What it may look up (section 4, level 2) |
 |---|---|---|
-| In-app chat, signed in as seller or rider | The account holder | Their own account, wallet, deals and cases |
-| In-app chat on a buyer deal or contract page | Whoever holds that link | That deal only: what the page already shows, plus the refund number, masked |
+| WhatsApp with a valid help reference from the seller or rider app | The signed-in account holder who opened it | Their own account, wallet, deals and cases |
+| WhatsApp or email with a valid help reference from a buyer deal page | Whoever holds that deal's link | That deal only: what the page already shows, plus the refund number, masked |
 | WhatsApp from a number registered on a profile | The account holder (WhatsApp verified the number) | Their own account. For buyers: deals paid from that number. |
-| SMS from a registered number | The account holder (the operator gives the sender's number) | Same as WhatsApp, but SMS replies carry no balances or deal amounts; the agent says "check the app" instead |
-| Email from a profile's verified email that passes DMARC | The account holder | Own account status only. Details go to the app. |
-| Email that fails authentication, or from an unknown address | Unknown | General help only, plus a link to continue in the app |
-| Website form | Unknown | General help only; replies go to the typed email or phone |
+| Email with a valid help reference from the seller or rider app | The signed-in account holder who opened it | Their own account; amounts and details stay brief, since email is forwarded and stored |
+| Email from a profile's confirmed email that passes DMARC | The account holder | Own account status. For details, the agent sends a help link that opens a referenced conversation. |
+| Email that fails authentication, or from an unknown address | Unknown | General help only |
+| Website form | Unknown | General help only |
 | Any channel, with a buyer's link code in the message | Whoever holds that link | What the deal page shows, nothing more |
 
-### 2.4 One person across channels
+### 2.4 Help references: context without in-app chat
+
+A help reference is a short, single-use code that proves "this message comes
+from someone signed in to Swap" or "someone who holds this deal link". Swap
+issues it, and the gateway checks it.
+
+1. **In the app.** A signed-in seller taps "Get help". The app asks the
+   backend for a reference (`POST /v1/seller/support/reference`), bound to
+   their profile and, if they tapped it from a deal, to that deal. It is
+   valid for 30 minutes and works once.
+2. **The app opens WhatsApp or email, already filled in:**
+   - WhatsApp: `wa.me/<support number>?text=Hi Swap, I need help with deal
+     K7Q2 (ref H7K2QX)`.
+   - Email: `mailto:support@swapafrica.online?subject=Help with deal K7Q2
+     [ref H7K2QX]`.
+3. **The gateway checks it.** It finds the reference in the first message,
+   verifies it, and links that WhatsApp number or email address to the
+   profile for this conversation. It records how the link was made
+   (`verified_how = help_ref`).
+4. **The agent starts with full context:** the signed-in person, the deal
+   they tapped from, and the trust level of a signed-in user.
+
+The same buttons go on:
+
+- the buyer deal and contract pages (reference bound to that one deal);
+- the seller PIN and withdrawal lock screens;
+- the rider "access inactive" screen;
+- the website form's reply email.
+
+A reference only proves what the person could already see in the app, so
+sharing it gives nobody more than the sharer had. Expired or reused
+references are ignored, and the message is treated by the rules of its
+channel.
+
+### 2.5 One person across channels
 
 - **Automatic linking:** a channel address is linked to a person only when it
   matches something Swap has already verified:
   - a profile's SMS-verified phone;
   - a profile's confirmed email;
   - a buyer's paying number;
-  - a signed-in session.
-- **Never on someone's word:** saying "I'm the seller of shop X" links nothing.
-- **Linking up later:** an unlinked person can continue in the app. The agent
-  sends a link like `seller.swapafrica.online/support?case=1234`, and once
-  they sign in, the case attaches to their account.
-- **Several channels at once:** one case, one answer. If someone emails and
+  - a valid help reference.
+- **Never on someone's word:** saying "I'm the seller of shop X" links
+  nothing.
+- **Both channels at once:** one case, one answer. If someone emails and
   WhatsApps about the same refund, the agent answers on the latest channel
   and says it has seen both.
 
-### 2.5 The same answer, shaped per channel
-
-The agent writes one answer. The renderer applies each channel's rules, and
-the guard checks the result.
+**The same answer, shaped per channel.** The agent writes one answer. The
+renderer applies each channel's rules, and the guard checks the result.
 
 | Channel | Shape |
 |---|---|
-| In-app | One or two short messages, plus buttons that deep-link into the app |
-| WhatsApp | One or two short bubbles; voice notes and pictures understood; no attachments sent except Swap links |
-| SMS | At most two segments (306 GSM characters; fewer with emoji or accented letters, which the renderer avoids). No links except `swapafrica.online`, because links in SMS look like phishing. No amounts or balances. |
-| Email | Greeting, short paragraphs, signature. Subject keeps `[Swap #1234]` so replies thread. Sent from `support@` with `In-Reply-To` and `References` headers. |
-| Form | Reply by email or SMS, depending on what they typed |
+| WhatsApp | One or two short bubbles. Voice notes and pictures understood. Links only to Swap pages. |
+| Email | Greeting, short paragraphs, signature. Subject keeps `[Swap #1234]` so replies thread. Sent from `support@` with `In-Reply-To` and `References` headers. Plain text first, with a light HTML version. |
+| Website form | A reply by email, or on WhatsApp if they left a number |
 
 ### 2.6 Follow-ups and cost
 
 | Channel | Follow-up rules | Cost |
 |---|---|---|
-| In-app | A web push to sellers and buyer guest sessions (the VAPID setup already exists in `notifications`); an in-app notice for riders (the rider app polls every 30s) | Free |
-| WhatsApp | Free-form within 24 hours of their last message; after that, only approved utility templates | From 1 October 2026: 1,000 free service messages per number per month, then the Uganda utility rate. Templates are paid per message. Check current rates before launch. |
-| SMS | Any time | Outbound per segment through the SMS provider. Inbound: Africa's Talking lists about UGX 65 per message from MTN and Airtel. Shortcode fees: see below. |
+| WhatsApp | Free-form within 24 hours of their last message; after that, only approved utility templates, and only to people who have messaged Swap Support (Meta requires opt-in before a business starts a conversation) | From 1 October 2026: 1,000 free service messages per number per month, then the Uganda utility rate. Templates are paid per message. Check current rates before launch. |
 | Email | Any time | Free through the Zoho mailbox |
-
-**Two-way SMS options in Uganda** (confirm the current prices with the
-provider):
-
-- **Shared shortcode through Africa's Talking.** It can be allocated within a
-  day of KYC and payment. Their page lists a monthly fee.
-- **Dedicated shortcode licensed by UCC.** About two months to get,
-  application and annual fees (Africa's Talking lists about USD 2,360 a year),
-  plus operator setup and monthly fees.
-- **Start shared,** and move to dedicated once volume or branding justifies
-  it.
+| SMS notices (one-way) | For buyers who have never contacted support, this is the only way to reach them: a short notice, ending with the support WhatsApp number | Per segment, through ThinkX |
+| App notices | The existing notification feeds and web push, for sellers and riders | Free |
 
 ### 2.7 Hours
 
-Support is not the sales agent's human routine. The agent answers on every
-channel whenever the AI is available.
+Support is not the sales agent's human routine. The agent answers on both
+channels whenever the AI is available.
 
 - **Full answers:** 07:00 to 22:00.
 - **Outside those hours:** an instant acknowledgement with the expected reply
   time.
 - **P1:** alerts reach the owner at any hour.
-- **Speed:** in-app, WhatsApp and SMS replies within minutes. Email within the
-  hour is fine, since people expect it to be slower.
-- **Loop:** the 10-minute cron from the sales agent is too slow. Webhooks
-  deliver inbound messages at once, and the agent works through its queue
-  every few seconds.
+- **Speed:** WhatsApp replies within minutes. Email within the hour is fine,
+  since people expect it to be slower.
+- **Loop:** the 10-minute cron from the sales agent is too slow. The WhatsApp
+  webhook delivers messages at once, the mailbox is polled every minute, and
+  the agent works through its queue every few seconds.
 
 ## 3. The support catalogue
 
 Every situation below comes from a real state, error or message in the code.
-It applies on every channel, with the channel limits in section 2.
+It applies on both channels, with the channel rules in section 2.
 
 Each table has four columns:
 
@@ -266,7 +293,7 @@ Contract states run from `proposed` / `countered` through `accepted`,
 | Didit failed or keeps failing | Tips: light, a real ID, no glare. Offers the manual fallback in the app. | If it fails repeatedly |
 | "Verification pending for days" | Checks KYC status and age | Yes, if manual review is waiting on you |
 | "Why was I rejected?" | Gives the recorded reason in plain words | Appeals |
-| "Can I send my ID here?" (any channel) | **No.** IDs go only through the app's KYC screens, into private storage. The agent never accepts ID documents on chat, WhatsApp, SMS or email. If one arrives anyway, it is deleted and not sent to the AI. | No |
+| "Can I send my ID here?" (any channel) | **No.** IDs go only through the app's KYC screens, into private storage. The agent never accepts ID documents on WhatsApp or email. If one arrives anyway, it is deleted and not sent to the AI. | No |
 
 ### 3.5 Sellers and riders: wallet and withdrawals
 
@@ -395,9 +422,9 @@ themselves.** Section 2.3 applies this rule to each channel.
 
 - **Raising trust.** When a question needs more trust than the channel gives,
   the agent doesn't ask for personal details to "prove" who someone is.
-  Details can be looked up or stolen. Instead it sends them into the app,
-  where they sign in (sellers, riders) or open their deal link (buyers). The
-  same case continues there.
+  Details can be looked up or stolen. Instead it asks them to tap "Get help"
+  in the app, or on their deal page, while signed in. That sends a help
+  reference (section 2.4) into the same conversation.
 - **High-risk requests** (phone change, PIN reset, unlocking withdrawals,
   "I lost my phone"):
   - The agent never completes these, on any channel. It collects the request
@@ -407,12 +434,13 @@ themselves.** Section 2.3 applies this rule to each channel.
     A request that arrives hours after a SIM change should be treated with
     suspicion.
 - **Email senders.** Trusted only when:
-  - the address matches a confirmed profile email; and
-  - the message passes DMARC. The gateway reads the `Authentication-Results`
-    header written by the receiving server; it doesn't trust headers the
-    sender could forge.
+  - the address matches a confirmed profile email and the message passes
+    DMARC; or
+  - the email carries a valid help reference.
 
-  Anything else is treated as unknown.
+  The gateway reads the `Authentication-Results` header written by the
+  receiving server; it doesn't trust headers the sender could forge. Anything
+  else is treated as unknown.
 - **Media.** Screenshots of Mobile Money messages are useful evidence. Photos
   of IDs are refused and deleted (section 3.4).
 
@@ -425,17 +453,18 @@ Two ways to build this:
 | | A. Everything in the agent | **B. Inbox and channels in the Swap backend (recommended)** |
 |---|---|---|
 | Where conversations live | The agent's own SQLite | Postgres in the Swap backend, a new `support` schema |
-| In-app chat | Would need the backend anyway, since the apps only talk to the API | Native: new endpoints next to the existing ones |
+| Help references | Would need backend endpoints anyway, since only the backend knows who is signed in | Native: a small endpoint per app |
 | The owner's inbox | A command line and WhatsApp alerts | A Support page in the admin console, which already has 2FA, roles and audit |
-| Channel secrets (Meta token, SMS keys, mailbox password) | On the agent's machine | In the backend `.env` with the other provider secrets |
-| Webhooks (WhatsApp, SMS) | The agent would need its own public endpoint | The backend already verifies signed webhooks (`/v1/webhooks/momo`, `/v1/webhooks/didit`) |
-| Sending | The agent calls each provider | The backend sends through its provider traits. `SmsSender`, `EmailSender` and `PushProvider` already exist; add a WhatsApp sender. |
-| If the agent is down | Messages still arrive (queued by webhook senders) but aren't recorded anywhere you can see | Messages are stored and visible in the admin console. The owner can answer while the agent is down, and the agent catches up. |
+| Channel secrets (Meta token, mailbox password) | On the agent's machine | In the backend `.env` with the other provider secrets |
+| The WhatsApp webhook | The agent would need its own public endpoint | The backend already verifies signed webhooks (`/v1/webhooks/momo`, `/v1/webhooks/didit`) behind Caddy |
+| Sending | The agent calls each provider | The backend sends through its provider traits. `EmailSender` exists; add a WhatsApp sender. |
+| If the agent is down | Messages pile up at Meta and in the mailbox, invisible to the owner | Messages are stored and visible in the admin console. The owner can answer while the agent is down, and the agent catches up. |
 | Data protection and retention | A second copy of personal data on another machine | One place, covered by the backend's security rules and the privacy policy |
 
 B follows the backend's own laws: providers behind traits, every action
 audited, apps talking only through the API. It also means that when you hire
-a person for support, they use the same inbox.
+a person for support, they use the same inbox. If in-app chat is ever added,
+it is one more channel into the same tables.
 
 The agent then holds no channel credentials. It holds only:
 
@@ -447,35 +476,36 @@ The agent then holds no channel credentials. It holds only:
 
 | Table | Holds |
 |---|---|
-| `support.persons` | One row per person we talk to: linked `profile_id` if known, display name, preferred channel |
-| `support.channel_identities` | `(person, channel, address, verified_how, verified_at)`. Unique per `(channel, address)`. Linking rules in section 2.4. |
-| `support.conversations` | One thread per person and channel: status, who is handling it (`agent` or `owner`), last message times |
+| `support.persons` | One row per person we talk to: linked `profile_id` if known, display name, preferred channel (`whatsapp` or `email`) |
+| `support.channel_identities` | `(person, channel, address, verified_how, verified_at)`. Unique per `(channel, address)`. Linking rules in section 2.5. |
+| `support.help_refs` | `(code hash, profile or deal, created_at, expires_at, used_at, used_by_address)`. Single use, 30 minutes. |
+| `support.conversations` | One thread per person and channel: status, who is handling it (`agent` or `owner`), last message times, email thread IDs |
 | `support.messages` | `(conversation, direction, author: customer / agent / owner / system, body, attachments, channel_message_id unique, delivery status, created_at)`. Attachments go to the private bucket, never the public one. |
 | `support.cases` | One problem for one person across conversations: category, priority, status, linked deals, summary, owner decision, timestamps. Also the complaints register (section 7). |
 | `support.case_events` | What happened on a case, append-only |
 
 ### 6.3 Endpoints
 
-**Customers, in-app chat:**
+**Help references (for the "Get help" buttons):**
 
-- Sellers (JWT): `GET/POST /v1/seller/support/messages`,
-  `POST /v1/seller/support/attachments/presign`.
-- Riders (JWT): the same paths under `/v1/rider/support/…`.
-- Buyers (guest token, bound to one deal): `GET/POST /v1/buyer/txn/support`
-  and `/v1/buyer/contract/support`. The conversation is tied to that deal, so
-  the agent has the context without asking.
+- `POST /v1/seller/support/reference` (JWT) and `/v1/rider/support/reference`
+  (JWT), with an optional deal.
+- `POST /v1/buyer/txn/support/reference` and
+  `/v1/buyer/contract/support/reference` (guest token, bound to that deal).
+- Each returns the code plus ready-made `wa.me` and `mailto:` links.
+- They are rate-limited, like link opening.
 
 **Channels into the backend:**
 
-- `POST /v1/webhooks/whatsapp`, with Meta's signature checked.
-- `POST /v1/webhooks/sms/{provider}`, with the provider's signature or a
-  shared secret.
+- `POST /v1/webhooks/whatsapp`, with Meta's signature checked. Delivery and
+  read statuses update `support.messages`.
 - Email: a worker job that polls the mailbox over IMAP (or the Zoho Mail
   API).
   - Checks `Authentication-Results`.
   - Strips quoted replies and signatures.
   - Detects auto-replies (`Auto-Submitted`, bounces) so it never loops.
   - Threads by `In-Reply-To`, `References` and `[Swap #1234]`.
+  - Reads help references from the subject.
 - The contact form posts to `POST /v1/support/intake/form`, with Turnstile.
 
 **The agent** (a machine API key stored hashed, optionally limited to the VPS
@@ -490,9 +520,13 @@ IP, separate from staff logins; every call audited as
   trust level allows (section 2.3).
 - `GET /v1/support/agent/lookup?link_code=` and `?phone=`, for codes and
   numbers mentioned in messages.
-- `POST /v1/support/agent/conversations/{id}/reply`: text and buttons. The
-  backend renders it for the channel, enforces channel limits and sends it.
-  It refuses a reply to a conversation the owner has taken over.
+- `POST /v1/support/agent/conversations/{id}/reply`. The backend:
+  - takes text for WhatsApp, or a subject and body for email;
+  - renders it for the channel and enforces the channel's rules (the 24-hour
+    window, templates after it);
+  - sends it;
+  - refuses a reply to a conversation the owner has taken over;
+  - allows one reply per inbound message, enforced by a unique index.
 - `POST /v1/support/agent/cases`, `PATCH /v1/support/agent/cases/{id}`:
   open, update and brief.
 - `GET /v1/support/agent/watch`: the proactive signals (section 8).
@@ -550,7 +584,7 @@ Priorities and targets. These are internal targets, not legal ones.
 
 The owner gets a **brief**, not a chat log:
 
-- who, and on which channels;
+- who, and on which channel;
 - what they want;
 - what the agent checked (facts, with deal codes);
 - what the agent has told them;
@@ -578,15 +612,17 @@ agent reads `/v1/support/agent/watch` and acts:
 | A dispute opened | Tells both parties what to submit; case brief to the owner |
 | A seller's KYC waiting for manual review over 24 hours | Reminds the owner |
 | A rider application waiting | Reminds the owner |
-| SMS credit low (`credit_balance_probe`) | Alerts the owner. Sign-ups, resets and SMS support stop without SMS. |
+| SMS credit low (`credit_balance_probe`) | Alerts the owner. Sign-up codes, password resets and notices stop without SMS. |
 
 **Which channel a proactive message uses:**
 
-- **Sellers and riders:** in-app first (web push or notice), then SMS or a
-  WhatsApp template if it's urgent and unread.
-- **Buyers:** the deal page chat (and web push if they allowed it), then SMS
-  to the paying number. That number is the one contact Swap has for every
-  buyer.
+- **Sellers and riders:** the in-app notification feed (web push for sellers)
+  first. Then a WhatsApp template, if they have messaged Swap Support before,
+  or an email, if they have a confirmed email.
+- **Buyers:**
+  - A WhatsApp template, if they have messaged Swap Support before.
+  - Otherwise a one-way SMS notice to the paying number (the one contact Swap
+    has for every buyer), ending with the support WhatsApp number and email.
 
 ## 9. The AI model and customer data
 
@@ -625,15 +661,15 @@ What to do:
   voice notes, pictures and PDFs.
 - **Keep the AI gate.** Budget, cool-down and the ability to rest the AI all
   carry over. While the AI rests, the agent still acknowledges messages on
-  every channel and P1 alerts still reach the owner.
+  both channels and P1 alerts still reach the owner.
 
 ## 10. What to reuse from the sales agent
 
 | Sales agent part | In the support agent |
 |---|---|
 | `llm/` (the `agy`, Gemini and fake adapters, with attachments), the AI gate, `ask_json` | Keep as they are |
-| `messaging/` (a port with bridge and dry-run adapters) | Becomes an inbox port with two adapters: `SwapInbox` (the backend support API, for production) and `LocalInbox` (files, for dry runs and tests). The WhatsApp bridge can stay as a stopgap until the Cloud API is set up. |
-| `agent/guard.py` | Keep the approach and change the rules: allow the Swap links and the support email; forbid promises ("you will get a refund", "guaranteed") and requests for PIN or code; add masking checks for numbers; per-channel length limits (SMS) |
+| `messaging/` (a port with bridge and dry-run adapters) | Becomes an inbox port with two adapters: `SwapInbox` (the backend support API, for production) and `LocalInbox` (files, for dry runs and tests). The WhatsApp bridge can stay as a stopgap until the Cloud API number is verified. |
+| `agent/guard.py` | Keep the approach and change the rules: allow the Swap links and the support email; forbid promises ("you will get a refund", "guaranteed") and requests for PIN or code; add masking checks for numbers; email rules (subject, signature, no quoted history) |
 | SQLite store, claim-before-send, one-reply-per-inbound-message index | The backend holds the conversations. The agent keeps a small local store for AI call logs and its own work queue. The at-most-once rule moves to the backend's reply endpoint (one reply per inbound message, enforced by a unique index there). |
 | Longest-waiting first, the per-check time limit, owner takeover, `release` | Keep. Takeover and release become backend actions from the admin console. |
 | `tick`, human-hours sessions, presence and typing, first messages, Jiji, drafting | Drop. Support answers inbound messages promptly and never sends cold messages. |
@@ -654,45 +690,49 @@ These are worth fixing before or alongside the agent.
 | **G1** | There's no way to cancel a funded goods deal before pickup. The state machine allows `FUNDED` / `RIDER_ASSIGNED` / `AT_PICKUP` to `VOIDED`, but the only void paths in code are photo rejection, refusal at the door and the unpaid-link sweep. | Money is stuck when no rider comes, the item is sold out, or the buyer cancels before pickup. Today the only fix is editing the database by hand. | An admin "void and refund" action (`Refunds: edit`, reason required, audited), and maybe a seller "cancel, item unavailable" action |
 | **G2** | A failed buyer refund only writes an audit event (`refund_failed_alert`, owner-only log) | Nobody is told. The money sits in `refund_liability`. | A failed-refunds queue in the admin app, retry to the same or a corrected number (verified), and a message to the buyer |
 | **G3** | The admin escrow list filters only by status. There's no search by phone or link code. | Every support question starts with "which deal?" | Search by link code and phone. The support API (section 6) covers this for the agent. |
-| **G4** | Buyers get no SMS or WhatsApp updates. They see progress only on the deal page. | Most "where is my order?" questions come from this | Short transactional SMS at: payment confirmed, photos ready, rider on the way, refund sent |
-| **G5** | Support contact is email and Pushover only | People end up on the owner's personal WhatsApp | The channels in section 2 |
+| **G4** | Buyers get no updates outside the deal page | Most "where is my order?" questions come from this | Short one-way SMS notices at: payment confirmed, photos ready, rider on the way, refund sent, each ending with the support WhatsApp number |
+| **G5** | Support contact is a `mailto` link and a form that goes to Pushover. There's no WhatsApp support number, and nothing passes context. | People end up on the owner's personal WhatsApp, and every conversation starts with "which account, which deal?" | The WhatsApp number, the inbox, and "Get help" buttons with help references (section 2.4) |
 | **G6** | The terms and the code disagree. The terms say "either party may open a dispute" (only buyers can), that orders can be "canceled before dispatch" (no path, see G1), and that the delivery fee is kept on refusal "if the seller fulfilled the description accurately" (the code always keeps it). The terms in `docs/legal` also link the privacy policy to a file on a local Windows disk. | The agent would have to either contradict the terms or explain behaviour the terms don't describe | Align the terms and the code |
 | **G7** | Rider provisioning, when `RIDER_ACTIVATION_BY_CODE` is off, texts a temporary password `SwapAfrica@<3 digits>`: only 1,000 possibilities | A security risk. Support will also get "I didn't get my password". | Turn on activation by code (Phase 1d) and stop sending passwords by SMS |
 | **G8** | The `support` staff sub-role can't resolve disputes (it needs `Refunds: edit`) but can approve KYC and reset PINs | Fine while the owner is alone. It matters when you hire a support person. | Review the matrix, and add a `Support` area for the inbox |
 | **G9** | The privacy policy doesn't mention AI-assisted support or processing outside Uganda | Data protection exposure (section 9) | Update the policy |
 | **G10** | Check whether the payment consumer protection rules apply to Swap | Complaint deadlines and records | Legal check (section 7) |
-| **G11** | There's no chat in the apps | The best channel (section 2.2) doesn't exist | The `support` schema, endpoints and screens (section 6) |
-| **G12** | ThinkX, the SMS provider, can only send: its API has send, status, bulk and balance, and no inbound messages | People can't text Swap back | A two-way provider with a shortcode (section 2.6). Keep ThinkX for outbound if it's cheaper. |
-| **G13** | The `support@swapafrica.online` mailbox is still unticked in the launch checklist (`identity-and-seller-auth.md`), but the apps already link to it | Emails to support may bounce or go nowhere today | Create the Zoho mailbox now |
-| **G14** | The SPF record fix (`include:zohomail.com include:spf.brevo.com`) is still open in the same checklist | Support emails from `support@` may land in spam | Update the SPF record |
+| **G11** | The apps have nowhere to start a support conversation with context | See G5 | "Get help" buttons and help-reference endpoints (sections 2.4 and 6.3) |
+| **G12** | SMS notices don't say how to reach support. ThinkX is send-only, so replies to an SMS go nowhere. | People reply to an SMS and get silence | End every customer SMS with the support WhatsApp number or email |
+| **G13** | The `support@swapafrica.online` mailbox is still unticked in the launch checklist (`identity-and-seller-auth.md`), but the apps already link to it | One of the two main channels may be bouncing emails today | Create the Zoho mailbox now |
+| **G14** | The SPF record fix (`include:zohomail.com include:spf.brevo.com`) is still open in the same checklist | Support replies from `support@` may land in spam | Update the SPF record |
 
 ## 12. Decisions for the owner
 
 1. **Architecture:** inbox and channels in the Swap backend with the agent as
    the brain (recommended, section 6.1), or everything in the agent?
-2. **Channel order:** in-app chat first (recommended: best identity, free),
-   then email, then WhatsApp Cloud API, then SMS?
-3. **SMS:** an Africa's Talking shared shortcode to start (recommended), or
-   apply to UCC for a dedicated one now, since it takes about two months?
-4. **Model:** is `agy` on the personal plan acceptable for customer data, or
+2. **WhatsApp setup:** the official Cloud API on a new Swap Support number
+   (recommended), or the bridge from the sales agent as a stopgap?
+3. **Model:** is `agy` on the personal plan acceptable for customer data, or
    move support to the paid Gemini API from day one (recommended)?
-5. **Hours and P1 alerts:** are 07:00 to 22:00 and "P1 at any hour" right?
-6. **Identity for high-risk requests:** which check before a PIN reset or
+4. **Hours and P1 alerts:** are 07:00 to 22:00 and "P1 at any hour" right?
+5. **Identity for high-risk requests:** which check before a PIN reset or
    phone change: a video call against KYC, a fresh Didit check, or both?
-7. **Gaps:** which of G1 to G14 to fix first. G1 and G2 are about money stuck
+6. **Gaps:** which of G1 to G14 to fix first. G1 and G2 are about money stuck
    with no way out. G13 may be losing emails today.
-8. **Disclosure:** introduce the agent as "Swap Support assistant" on every
-   channel and offer a person on request (recommended)?
+7. **Disclosure:** introduce the agent as "Swap Support assistant" on both
+   channels and offer a person on request (recommended)?
+8. **In-app chat:** leave it out (recommended for now, since help references
+   cover the need), or plan it for later?
 
 ## 13. Build plan
 
-1. **Quick wins now:** create the `support@` mailbox (G13), fix SPF (G14),
-   and start the SMS shortcode process (G12), since it has the longest lead
-   time.
+1. **Quick wins now:**
+   - create the `support@` mailbox (G13) and fix SPF (G14);
+   - start Meta business verification for the Swap Support WhatsApp number;
+   - add the support contact line to SMS notices (G12).
 2. **Swap backend, money gaps:** G1 (admin void and refund) and G2 (failed
    refunds queue and retry).
 3. **Swap backend, support inbox:**
    - the `support` schema;
+   - help-reference endpoints;
+   - the email intake worker;
+   - the WhatsApp webhook and sender;
    - the agent API with an audited machine key;
    - context bundles and trust levels;
    - the admin console Support page with takeover.
@@ -700,21 +740,16 @@ These are worth fixing before or alongside the agent.
    - the inbox port (`SwapInbox`, `LocalInbox`);
    - cases and briefs;
    - the knowledge base by area;
-   - per-channel rendering and guard rules.
+   - WhatsApp and email rendering and guard rules.
 
-   Tests for every row in section 3, on each channel's limits.
-5. **In-app chat:** seller app, rider app, buyer deal and contract pages, with
-   web push for replies.
-6. **Email intake:** IMAP polling, authentication checks, threading and
-   auto-reply detection; replies from `support@`.
-7. **WhatsApp Cloud API:** webhook, sender, templates, and the support number
-   in the apps.
-8. **SMS:** the two-way provider's webhook, and outbound support replies.
-9. **Website form** into the inbox, and the proactive watcher with digests
+   Tests for every row in section 3, on both channels.
+5. **"Get help" buttons:** in the seller app, rider app, buyer deal and
+   contract pages, and the lock screens, replacing the bare `mailto` links.
+6. **Website form** into the inbox, and the proactive watcher with digests
    (section 8).
-10. **Dry runs** throughout: realistic conversations per channel (voice notes,
-    screenshots, Luganda and English, fake links, spoofed emails, PIN
-    requests, SIM-swap stories).
+7. **Dry runs** throughout: realistic conversations on both channels (voice
+   notes, screenshots, Luganda and English, fake links, spoofed emails, PIN
+   requests, SIM-swap stories, emails trying to instruct the agent).
 
 ## Sources
 
@@ -723,10 +758,6 @@ These are worth fixing before or alongside the agent.
   [MediaNama: WhatsApp bans external AI providers from the Business API](https://www.medianama.com/2025/10/223-whatsapp-bans-external-ai-providers-business-api/).
 - **WhatsApp pricing:** [Meta: Pricing on the WhatsApp Business Platform](https://developers.facebook.com/documentation/business-messaging/whatsapp/pricing),
   [EngageLab: WhatsApp Business API pricing 2026 and the 1 October changes](https://www.engagelab.com/blog/whatsapp-business-api-pricing).
-- **Two-way SMS in Uganda:** [Africa's Talking: two-way SMS](https://AfricasTalking.com/sms/twowaysms),
-  [Africa's Talking: 2-way SMS shortcode in Uganda](https://help.africastalking.com/en/articles/4096608-2-way-sms-shortcode-in-uganda),
-  [Africa's Talking: raising dedicated services in Uganda](https://help.africastalking.com/en/articles/2285788-how-long-does-it-take-to-raise-dedicated-services-in-uganda),
-  [UCC: short codes](https://www.ucc.co.ug/short-codes/).
 - **Uganda payment consumer protection:** [National Payment Systems (Consumer Protection) Regulations, 2022 (ULII)](https://ulii.org/akn/ug/act/si/2022/103/eng@2022-09-09).
   Not read in full here; its deadlines still need checking.
 - **Uganda data protection:** [Data Protection and Privacy Act, 2019 (ULII)](https://www.ulii.org/akn/ug/act/2019/9),
